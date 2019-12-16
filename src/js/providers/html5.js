@@ -98,10 +98,11 @@ function VideoProvider(_playerId, _playerConfig, mediaElement) {
                 // Reset error retries after concurrent timeupdate events
                 _this.retries = 0;
             }
-            _this.currentTime = _videotag.currentTime;
+            var currentTime = _this.getVideoCurrentTime();
+            _this.currentTime = currentTime;
             // Keep track of position before seek in iOS fullscreen
-            if (_iosFullscreenState && _timeBeforeSeek !== _videotag.currentTime) {
-                setTimeBeforeSeek(_videotag.currentTime);
+            if (_iosFullscreenState && _timeBeforeSeek !== currentTime) {
+                setTimeBeforeSeek(currentTime);
             }
             VideoEvents.timeupdate.call(_this);
             checkStaleStream();
@@ -283,7 +284,7 @@ function VideoProvider(_playerId, _playerConfig, mediaElement) {
             this.addTracksListener(_videotag.textTracks, 'change', this.textTrackChangeHandler);
         },
         isLive() {
-            return _videotag.duration === Infinity;
+            return this.getDuration() === Infinity;
         }
     });
 
@@ -367,8 +368,16 @@ function VideoProvider(_playerId, _playerConfig, mediaElement) {
         _timeBeforeSeek = currentTime;
     }
 
+    _this.getVideoCurrentTime = function() {
+        if (_playerConfig.getCurrentTimeHook) {
+            return _playerConfig.getCurrentTimeHook(_videotag);
+        }
+          
+        return _videotag.currentTime;
+    }
+
     _this.getCurrentTime = function() {
-        return getPosition(_videotag.currentTime);
+        return getPosition(_this.getVideoCurrentTime());
     };
 
     function timeToPosition(currentTime) {
@@ -395,18 +404,22 @@ function VideoProvider(_playerId, _playerConfig, mediaElement) {
 
     function updateDvrPosition(seekRange) {
         dvrEnd = seekRange.end;
-        dvrPosition = Math.min(0, _videotag.currentTime - dvrEnd);
+        dvrPosition = Math.min(0, _this.getVideoCurrentTime() - dvrEnd);
         dvrUpdatedTime = now();
     }
 
     _this.getDuration = function() {
+        if (_playerConfig.getDurationHook) {
+            return _playerConfig.getDurationHook();
+        }
+
         let duration = _videotag.duration;
         // Don't sent time event on Android before real duration is known
-        if (_androidHls && (duration === Infinity && _videotag.currentTime === 0) || isNaN(duration)) {
+        if (_androidHls && (duration === Infinity && _this.getVideoCurrentTime() === 0) || isNaN(duration)) {
             return 0;
         }
         const end = _getSeekableEnd();
-        if (_this.isLive() && end) {
+        if (_videotag.duration === Infinity && end) {
             const seekableDuration = end - _getSeekableStart();
             if (isDvr(seekableDuration, minDvrWindow)) {
                 // Player interprets negative duration as DVR
@@ -419,7 +432,7 @@ function VideoProvider(_playerId, _playerConfig, mediaElement) {
     _this.getSeekRange = function() {
         const seekRange = {
             start: 0,
-            end: _videotag.duration
+            end: _this.getDuration()
         };
 
         const seekable = _videotag.seekable;
@@ -436,7 +449,7 @@ function VideoProvider(_playerId, _playerConfig, mediaElement) {
         let latency = null;
         const end = _getSeekableEnd();
         if (_this.isLive() && end) {
-            latency = end + (now() - dvrUpdatedTime) / 1000 - _videotag.currentTime;
+            latency = end + (now() - dvrUpdatedTime) / 1000 - _this.getVideoCurrentTime();
         }
         return latency;
     };
@@ -514,7 +527,7 @@ function VideoProvider(_playerId, _playerConfig, mediaElement) {
             if (previousSource) {
                 _videotag.load();
             }
-        } else if (startTime === 0 && _videotag.currentTime > 0) {
+        } else if (startTime === 0 && _this.getVideoCurrentTime() > 0) {
             // Load event is from the same video as before
             // restart video without dispatching seek event
             _delayedSeek = -1;
@@ -522,7 +535,7 @@ function VideoProvider(_playerId, _playerConfig, mediaElement) {
         }
 
         // Check if we have already seeked the mediaElement before _completeLoad has been called
-        if (startTime > 0 && _videotag.currentTime !== startTime) {
+        if (startTime > 0 && _this.getVideoCurrentTime() !== startTime) {
             _this.seek(startTime);
         }
 
@@ -668,19 +681,19 @@ function VideoProvider(_playerId, _playerConfig, mediaElement) {
     this.pause = function() {
         clearTimeouts();
         _beforeResumeHandler = function() {
-            const unpausing = _videotag.paused && _videotag.currentTime;
+            const unpausing = _videotag.paused && _this.getVideoCurrentTime();
             if (unpausing && _this.isLive()) {
                 const end = _getSeekableEnd();
                 const seekableDuration = end - _getSeekableStart();
                 const isLiveNotDvr = !isDvr(seekableDuration, minDvrWindow);
-                const behindLiveEdge = end - _videotag.currentTime;
+                const behindLiveEdge = end - _this.getVideoCurrentTime();
                 if (isLiveNotDvr && end && (behindLiveEdge > 15 || behindLiveEdge < 0)) {
                     // resume playback at edge of live stream
                     _seekToTime = Math.max(end - 10, end - seekableDuration);
                     if (!isFinite(_seekToTime)) {
                         return;
                     }
-                    setTimeBeforeSeek(_videotag.currentTime);
+                    setTimeBeforeSeek(_this.getVideoCurrentTime());
                     _videotag.currentTime = _seekToTime;
                 }
 
@@ -690,6 +703,10 @@ function VideoProvider(_playerId, _playerConfig, mediaElement) {
     };
 
     this.seek = function(seekToPosition) {
+        if (_playerConfig.seekHook) {
+            return _playerConfig.seekHook(seekToPosition, _videotag);
+        }
+
         const seekRange = _this.getSeekRange();
         let seekToTime = seekToPosition;
         if (seekToPosition < 0) {
@@ -711,7 +728,7 @@ function VideoProvider(_playerId, _playerConfig, mediaElement) {
                     }
                 }
                 _seekToTime = seekToTime;
-                setTimeBeforeSeek(_videotag.currentTime);
+                setTimeBeforeSeek(_this.getVideoCurrentTime());
                 _videotag.currentTime = seekToTime;
             } catch (e) {
                 _this.seeking = false;
@@ -817,7 +834,7 @@ function VideoProvider(_playerId, _playerConfig, mediaElement) {
                 // from when the provider was first initialized
                 _playerConfig.qualityLabel = _levels[quality].label;
 
-                _completeLoad(_videotag.currentTime || 0);
+                _completeLoad(_this.getVideoCurrentTime() || 0);
                 _play();
             }
         }

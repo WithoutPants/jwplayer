@@ -39,7 +39,7 @@ const VideoListenerMixin = {
     },
 
     timeupdate() {
-        const currentTime = this.video.currentTime;
+        const currentTime = this.getVideoCurrentTime();
         const position = this.getCurrentTime();
         const duration = this.getDuration();
         if (isNaN(duration)) {
@@ -128,7 +128,7 @@ const VideoListenerMixin = {
             return;
         }
         // If "pause" fires before "complete", we still don't want to propagate it
-        if (this.video.currentTime === this.video.duration) {
+        if (this.getVideoCurrentTime() === this.getDuration()) {
             return;
         }
         this.setState(STATE_PAUSED);
@@ -149,7 +149,7 @@ const VideoListenerMixin = {
             bufferPercent: buffered * 100,
             position: this.getCurrentTime(),
             duration: dur,
-            currentTime: this.video.currentTime,
+            currentTime: this.getVideoCurrentTime(),
             seekRange: this.getSeekRange()
         });
     },
