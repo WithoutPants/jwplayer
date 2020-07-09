@@ -704,7 +704,11 @@ function VideoProvider(_playerId, _playerConfig, mediaElement) {
 
     this.seek = function(seekToPosition) {
         if (_playerConfig.seekHook) {
-            return _playerConfig.seekHook(seekToPosition, _videotag);
+            // if seekHook returns false, then fall through to default
+            // behaviour
+            if (_playerConfig.seekHook(seekToPosition, _videotag)) {
+                return;
+            }
         }
 
         const seekRange = _this.getSeekRange();
